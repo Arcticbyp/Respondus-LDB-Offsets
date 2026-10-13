@@ -1,404 +1,612 @@
 #pragma once
-
-#include <cstddef>
 #include <cstdint>
 
-// ============================================================================
-// Respondus LockDown Browser — Offsets & Signature Patterns
-// Version: 2.1.6.00 (CLDB 2.1.6.00; Chrome/150.0.0.0)
-// Generated: 2026-09-16
-// Includes: .cldb flags, exports, hooks, VM detection, anti-debug,
-//           driver IOCTL, quiz_active flag, RLDB command codes
-// ============================================================================
+/*
+ * LockDownBrowser 2.1.6.0.2 - offsets.hpp
+ * Sources: Ghidra MCP (2026-10-11) + deobfuscation scripts + live Ghidra session
+ *           (emu_layerA.py, deobf.py, iat_calls.py) + existing analysis JSON
+ *
+ * Only verified, actionable data. No filler.
+ */
 
-namespace respondus_offsets {
+namespace ldb {
 
-    // ========================================================================
-    // Module: LockDownBrowser.dll (LDB.dll)
-    // x64 DLL (v2.1.6.00), loaded by LockDownBrowser.exe
-    // ========================================================================
-    namespace lockdownbrowser_dll {
+// ---------------------------------------------------------------------------
+// VERSION
+// ---------------------------------------------------------------------------
 
-        // ====================================================================
-        // .cldb Shared Memory Section (SHARED|WRITE|READ)
-        // 24 bytes of runtime flags. Write 24 zero bytes to disable all.
-        // Find dynamically by walking PE sections for ".cldb" name.
-        // ====================================================================
-        namespace cldb {
+struct version {
+    static constexpr const char* CURRENT = "2.1.6.0.2";
 
-            // --- Static offsets (relative to LDB.dll base) ---
-            // v2.1.6.00: RVA_SECTION = 0x1C000
-            constexpr uint32_t RVA_SECTION = 0x1C000;
-            constexpr uint32_t SIZE = 0x18;
+    static constexpr uintptr_t EXE_BASE = 0x140000000;
+    static constexpr uintptr_t DLL_BASE = 0x180000000;
+    static constexpr uintptr_t DRV_BASE = 0x140000000;
+};
 
-            // Flag qword offsets within .cldb section
-            // (x64 build touches all three slots with 64-bit mov/cmp only)
-            enum class FlagOffset : uint32_t {
-                LOCKDOWN_ENABLED = 0x00,       // keyboard hooks, navigation block
-                PROCTORING_ENABLED = 0x08,     // webcam/microphone recording
-                EXIT_PASSWORD_ENABLED = 0x10,  // require password to exit
-            };
+// ---------------------------------------------------------------------------
+// VERSION DETECTION -- pattern-scan the .text section
+// ---------------------------------------------------------------------------
 
-            // Runtime .cldb flag structure (24 bytes)
-            struct Flags {
-                uint64_t lockdown;      // +0x00 — non-zero = lockdown active
-                uint64_t proctoring;    // +0x08 — non-zero = proctoring active
-                uint64_t exit_password; // +0x10 — non-zero = exit password required
-            };
+namespace version_detect {
+    // wrapper_reflection sub rsp differs:
+    //   2.1.6.0.0: 48 81 EC 60 02 00 00  (sub rsp, 0x260)
+    //   2.1.6.0.2: 48 81 EC 80 01 00 00  (sub rsp, 0x180)
+    static constexpr const uint8_t SIG_REFL_20600[] = {
+        0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57,
+        0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57,
+        0x48,0x81,0xEC,0x60,0x02,0x00,0x00};
+    static constexpr const uint8_t SIG_REFL_20602[] = {
+        0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57,
+        0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57,
+        0x48,0x81,0xEC,0x80,0x01,0x00,0x00};
 
-            // Verified x64 access sites (2.1.6.0.0)
-            // Found by scanning .text for RIP-relative operands landing in
-            // [0x18001C000, 0x18001C018). 32 sites, all 64-bit.
-            namespace access_sites_x64 {
-                // slot +0x00
-                constexpr uint32_t SLOT00[] = {
-                    0x100A, 0x1026, 0x10AB, 0x10BD, 0x10E7, 0x11C8, 0x122F, 0x126B,
-                    0x12C3, 0x12D0, 0x1451, 0x16BC, 0x178C, 0x18A8, 0x19B0,
-                };
-                // slot +0x08
-                constexpr uint32_t SLOT08[] = {
-                    0x1100, 0x1201, 0x1239, 0x12F0, 0x1302, 0x133F, 0x1351, 0x1386,
-                    0x1A1A, 0x1AAB, 0x1B56,
-                };
-                // slot +0x10
-                constexpr uint32_t SLOT10[] = {
-                    0x10F1, 0x11DA, 0x1248, 0x12D7, 0x12E9, 0x1B92,
-                };
-                constexpr uint32_t SITE_COUNT = 32;
-            }
+    // wrapper_threadhacks sub rsp differs:
+    //   2.1.6.0.0: 48 81 EC 20 01 00 00  (sub rsp, 0x120)
+    //   2.1.6.0.2: 48 81 EC C0 00 00 00  (sub rsp, 0xC0)
+    static constexpr const uint8_t SIG_THREAD_20600[] = {
+        0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57,
+        0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57,
+        0x48,0x81,0xEC,0x20,0x01,0x00,0x00};
+    static constexpr const uint8_t SIG_THREAD_20602[] = {
+        0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57,
+        0x41,0x56,0x41,0x57,
+        0x48,0x81,0xEC,0xC0,0x00,0x00,0x00};
+};
 
-            // sigscan method:
-            // 1. Parse LDB.dll PE -> find .cldb section VirtualAddress
-            // 2. cldb_runtime = ldb_base + VirtualAddress
-            // 3. Scan .text for RIP-relative qword forms: 48 89 / 48 8B / 48 83 3D / 48 39
-            // 4. For each: resolve disp32 (target = insn_addr + insn_len + disp)
-            //    -> if target in [cldb_runtime, cldb_runtime+0x18] it's a .cldb access.
-            //       offset from section start tells you the slot; opcode tells you read vs write.
-        } // namespace cldb
+// ---------------------------------------------------------------------------
+// AKD FUNCTION SIGNATURES (from akd_targets_20602.json / akd_targets_20600.json)
+// ---------------------------------------------------------------------------
 
+namespace akd {
 
-        // ====================================================================
-        // Quiz Active Flag
-        // Set via rldbqn=1 command. Controls whether all monitoring is active.
-        // v2.1.6.00: EXE-side candidate at 0x140CAC708 (.data, RVA 0xCAC708)
-        // ====================================================================
-        namespace quiz_active {
-            // "rldbqn=1" is a string in LockDownBrowser.exe (VA 0x140B1CAE0),
-            // handled by an EXE function — the HookDLL never sees it.
-            // The EXE-side handler is 0x14006BCA0-0x14006E360
-            // (it references BOTH "rldbqn=1" and "rldbxb=1").
-            constexpr uint32_t EXE_HANDLER_START = 0x14006BCA0;
-            constexpr uint32_t EXE_HANDLER_END   = 0x14006E360;
+    // "parent" -- main AKD dispatcher
+    // 2.1.6.0.2: 0x1402BB840 (4707 bytes)  2.1.6.0.0: 0x1402BF390 (4643 bytes)
+    // Deobfuscated: calls GetSystemTime, SystemTimeToFileTime.
+    // Accesses globals 0x140CEDF60, 0x140CEDF80, 0x140CEDF40 with many sub-offsets.
+    // Stopped early at 0x1402BBFBC (partial trace -- 70 instrs, 20.6% filler).
+    static constexpr uint32_t RVA_20602 = 0x2BB840;
+    static constexpr uint32_t RVA_20600 = 0x2BF390;
+    static constexpr uint32_t SIZE_20602 = 4707;
+    static constexpr uint32_t SIZE_20600 = 4643;
 
-            // Strong candidate (not yet confirmed at runtime). In the handler:
-            //   14006C360  cmp dword ptr [0x140CAC708], 0   ; already active?
-            //   14006C575  mov dword ptr [0x140CAC708], 1   ; set active (C7 05 form)
-            // and it is read from a second function (cmp at 0x1401932EB).
-            constexpr uint32_t EXE_FLAG_CANDIDATE_VA  = 0x140CAC708;
-            constexpr uint32_t EXE_FLAG_CANDIDATE_RVA = 0xCAC708;
+    static constexpr const uint8_t SIG[] = {
+        0x48,0x89,0x5C,0x24,0x08, 0x48,0x89,0x74,0x24,0x10, 0x57,
+        0x48,0x83,0xEC,0x70, 0x48,0x8B,0x05,0x00,0x00,0x00,0x00,
+        0x48,0x33,0xC4, 0x48,0x89,0x44,0x24,0x68, 0x48,0x8B};
 
-            // Sigscan pattern: C7 05 [disp32] 01 00 00 00  (MOV DWORD [addr], 1)
-            // Sigscan pattern: C7 05 [disp32] 00 00 00 00  (MOV DWORD [addr], 0)
-            // Resolve disp32; if target is in .data -> quiz_active
-            // (include C7 05 — a register-form-only scanner will miss the write)
-        } // namespace quiz_active
+    // wrapper_reflection -- reflection load detection
+    // 2.1.6.0.2: 0x140277BF0 (1949 bytes)  2.1.6.0.0: 0x1402786B0 (7358 bytes)
+    // Deobfuscated: 38 instrs, 73% filler. reads GS cookie, increments GSO+0x248,
+    // reads GSO+0x210 vtable, calls helper_reflection, sets GSO+0x250 on success.
+    static constexpr uint32_t RVA_WRAP_REFL_20602 = 0x277BF0;
+    static constexpr uint32_t RVA_WRAP_REFL_20600 = 0x2786B0;
+    static constexpr uint32_t SIZE_WRAP_REFL_20602 = 1949;
+    static constexpr uint32_t SIZE_WRAP_REFL_20600 = 7358;
 
+    static constexpr const uint8_t SIG_WRAP_REFL_20602[] = {
+        0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57,
+        0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57,
+        0x48,0x81,0xEC,0x80,0x01,0x00,0x00, 0x48,0x8B,0x05,0x00,0x00,0x00,0x00};
+    static constexpr const uint8_t SIG_WRAP_REFL_20600[] = {
+        0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57,
+        0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57,
+        0x48,0x81,0xEC,0x60,0x02,0x00,0x00, 0x48,0x8B,0x05,0x00,0x00,0x00,0x00};
 
-        // ====================================================================
-        // VM Detection — CPUID-based hypervisor check
-        // ====================================================================
-        namespace vm_detection {
-            struct CpuidHypervisorOutput {
-                uint32_t eax;
-                uint32_t ebx;
-                uint32_t ecx;
-                uint32_t edx;
-            };
+    // wrapper_threadhacks -- thread hack detection
+    // 2.1.6.0.2: 0x140278390 (966 bytes)  2.1.6.0.0: 0x14027A370 (4566 bytes)
+    // Deobfuscated: 37 instrs, 79.4% filler. increments GSO+0x1B0,
+    // calls helper_threadinfo, sets GSO+0x1B9 on success, calls display check.
+    static constexpr uint32_t RVA_WRAP_THREAD_20602 = 0x278390;
+    static constexpr uint32_t RVA_WRAP_THREAD_20600 = 0x27A370;
+    static constexpr uint32_t SIZE_WRAP_THREAD_20602 = 966;
+    static constexpr uint32_t SIZE_WRAP_THREAD_20600 = 4566;
 
-            enum class HypervisorSignature : uint32_t {
-                VMWARE       = 0x6000601,  // "VMwareVMware"
-                MICROSOFT_HV = 0x6000602,  // "Microsoft Hv"
-                XEN          = 0x6000603,  // "XenVMMXenVMM"
-                KVM          = 0x6000603,  // "KVMKVMKVM"
-            };
-        } // namespace vm_detection
+    static constexpr const uint8_t SIG_WRAP_THREAD_20602[] = {
+        0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57,
+        0x41,0x56,0x41,0x57,
+        0x48,0x81,0xEC,0xC0,0x00,0x00,0x00, 0x48,0x8B,0x05,0x00,0x00,0x00,0x00};
+    static constexpr const uint8_t SIG_WRAP_THREAD_20600[] = {
+        0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57,
+        0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57,
+        0x48,0x81,0xEC,0x20,0x01,0x00,0x00, 0x48,0x8B,0x05,0x00,0x00,0x00,0x00};
 
+    // helper_reflection -- reflection status request path to driver
+    // STABLE: 0x14002E170 (5545 bytes) in both versions
+    static constexpr uint32_t RVA_HELP_REFL = 0x2E170;
+    static constexpr uint32_t SIZE_HELP_REFL = 5545;
 
-        // ====================================================================
-        // Anti-Debug — ICEBP instructions (opcode 0xF1)
-        // ====================================================================
-        namespace anti_debug {
-            constexpr uint8_t ICEBP_OPCODE = 0xF1;
-            constexpr uint8_t NOP_OPCODE   = 0x90;
+    static constexpr const uint8_t SIG_HELP_REFL[] = {
+        0x48,0x89,0x5C,0x24,0x18, 0x55,0x56,0x57, 0x41,0x54,0x41,0x55,
+        0x41,0x56,0x41,0x57, 0x48,0x8D,0xAC,0x24,0xC0,0xFE,0xFF,0xFF,
+        0x48,0x81,0xEC,0x40,0x02,0x00,0x00, 0x48};
 
-            // Confirmed trap site (x64 build, scan ICEBP traps for others):
-            // LDB+0x113A — inside export CLDBDoSomeOtherStuff (+0x1000)
-        } // namespace anti_debug
+    // helper_threadinfo -- thread info request path to driver
+    // STABLE RVA: 0x14002F720. Size grew: 4850 (20600)   6910 (20602).
+    static constexpr uint32_t RVA_HELP_THREAD = 0x2F720;
+    static constexpr uint32_t SIZE_HELP_THREAD_20600 = 4850;
+    static constexpr uint32_t SIZE_HELP_THREAD_20602 = 6910;
 
+    static constexpr const uint8_t SIG_HELP_THREAD[] = {
+        0x48,0x89,0x5C,0x24,0x18, 0x55,0x56,0x57, 0x41,0x54,0x41,0x55,
+        0x41,0x56,0x41,0x57, 0x48,0x8D,0xAC,0x24,0x00,0xFF,0xFF,0xFF,
+        0x48,0x81,0xEC,0x00,0x02,0x00,0x00, 0x48};
 
-        // ====================================================================
-        // DLL Exports — called by LockDownBrowser.exe
-        // v2.1.6.00: CLDBDoSomeOtherStuff=0x1000, CLDBDoSomeOtherStuffs=0x10E0,
-        //             CLDBDoSomeStuff=0x1110, CLDBDoYetMoreStuff=0x1330
-        // ====================================================================
-        namespace exports {
-            enum class Functions : uint32_t {  // v2.1.6.00
-                CLDBDoSomeOtherStuff  = 0x1000,
-                CLDBDoSomeOtherStuffs = 0x10E0,
-                CLDBDoSomeStuff       = 0x1110,
-                CLDBDoYetMoreStuff    = 0x1330,
-            };
+    // init_stub (2.1.6.0.2 only) -- allocates and initializes GSO
+    // 0x140275970 (327 bytes). Deobfuscated: 37 instrs, 90.9% filler.
+    static constexpr uint32_t RVA_INIT_STUB = 0x275970;
+    static constexpr uint32_t SIZE_INIT_STUB = 327;
 
-            enum class StatusFlags : uint32_t {
-                LOCKDOWN_ACTIVE   = 0x400,   // LOCKDOWN flag is set
-                PROCTORING_ACTIVE = 0x1000,  // PROCTORING flag is set
-                EXIT_ACTIVE       = 0x800,   // EXIT flag is set
-            };
-        } // namespace exports
+    static constexpr const uint8_t SIG_INIT_STUB[] = {
+        0x48,0x89,0x5C,0x24,0x18, 0x55,0x56,0x57,
+        0x48,0x83,0xEC,0x20, 0x48,0x8B,0xF1, 0xB9,0x20,0x00,0x00,0x00, 0xE8};
 
+    // akd_step1 (2.1.6.0.2 only) -- 0x140043480 (3047 bytes)
+    // Heavy computation, no API calls reached, 81.8% filler dropped.
+    static constexpr uint32_t RVA_STEP1 = 0x43480;
+    static constexpr uint32_t SIZE_STEP1 = 3047;
 
-        // ====================================================================
-        // Keyboard Hook Procedures (WH_KEYBOARD_LL)
-        // ====================================================================
-        namespace hook_procedures {
-            constexpr uint32_t KEYBOARD_HOOK_PROC_1 = 0x13A0;  // 249 B
-            constexpr uint32_t KEYBOARD_HOOK_PROC_2 = 0x162C;  // 187 B (tail of 0x14A0)
-            constexpr uint32_t KEYBOARD_HOOK_PROC_3 = 0x18E0;  // 256 B
-        } // namespace hook_procedures
+    static constexpr const uint8_t SIG_STEP1[] = {
+        0x48,0x89,0x4C,0x24,0x08, 0x55,0x53,0x56,0x57, 0x41,0x54,0x41,0x55,
+        0x41,0x56,0x41,0x57, 0x48,0x8D,0x6C,0x24,0xE1, 0x48,0x81,0xEC,0xC8,
+        0x00,0x00,0x00, 0x48,0x8B,0xF9};
 
+    // akd_step2 (2.1.6.0.2 only) -- 0x140024260 (3200 bytes)
+    // Heavy computation, no API calls reached, 84.7% filler dropped.
+    static constexpr uint32_t RVA_STEP2 = 0x24260;
+    static constexpr uint32_t SIZE_STEP2 = 3200;
 
-        // ====================================================================
-        // VK_F12 — not blocked in 2.1.6.0.0 (HookDLL)
-        // The F12 key (Chrome DevTools) block is absent from the 3 keyboard
-        // hook procs. Byte pattern "cmp ecx, 0x7b" (83 F9 7B) has 0
-        // occurrences in .text.
-        // ====================================================================
-        namespace vk_f12 {
-            constexpr uint32_t HOOK_PROC_1 = 0x13A0;  // WH_KEYBOARD_LL
-            constexpr uint32_t HOOK_PROC_2 = 0x162C;  // WH_KEYBOARD_LL
-            constexpr uint32_t HOOK_PROC_3 = 0x18E0;  // WH_KEYBOARD_LL
+    static constexpr const uint8_t SIG_STEP2[] = {
+        0x48,0x89,0x4C,0x24,0x08, 0x53,0x55,0x56,0x57, 0x41,0x54,0x41,0x55,
+        0x41,0x56,0x41,0x57, 0x48,0x83,0xEC,0x38, 0x4C,0x8D,0x4C,0x24,0x78,
+        0xBB,0xC6,0xB4,0x00,0x00, 0x41};
 
-            // The (absent) instruction pattern: cmp ecx, 0x7b (VK_F12)
-            constexpr uint8_t CMP_VK_F12_OPCODE = 0x83;
-            constexpr uint8_t CMP_VK_F12_OPERAND = 0x7B;
-        } // namespace vk_f12
+    // AKD init (2.1.6.0.0 only, replaced by init_stub/step1/step2 in 20602)
+    // 0x140274320 (3881 bytes)
+    static constexpr uint32_t RVA_INIT_20600 = 0x274320;
+    static constexpr uint32_t SIZE_INIT_20600 = 3881;
 
-    } // namespace lockdownbrowser_dll
+    static constexpr const uint8_t SIG_INIT_20600[] = {
+        0x48,0x89,0x4C,0x24,0x08, 0x53,0x55,0x56,0x57, 0x41,0x54,0x41,0x55,
+        0x41,0x56,0x41,0x57, 0x48,0x83,0xEC,0x48, 0x4C,0x8D,0x8C,0x24,
+        0x88,0x00,0x00,0x00, 0xBB,0x6A,0x18};
+};
 
+// ---------------------------------------------------------------------------
+// GlobalSecurityObject (from init_stub deobfuscation, 2.1.6.0.2)
+// ---------------------------------------------------------------------------
 
-    // ========================================================================
-    // RLDB Command Protocol Codes
-    // URL parameters passed to LDB.dll via CLDBDoSomeStuff
-    // ========================================================================
-    namespace rldb_commands {
+namespace gso {
+    // Byte offsets within the GlobalSecurityObject.
+    // Object allocated by init_stub (0x140275970), passed to akd_step1/step2.
+    enum : uint32_t {
+        VTABLE_1      = 0x00,  // vtable ptr (initialized by init_stub)
+        VTABLE_2      = 0x08,  // vtable ptr (self-reference)
+        VTABLE_3      = 0x10,  // vtable ptr
+        VTBL_WORD     = 0x18,  // uint16_t = 0x101
+        UNKNOWN_50    = 0x50,  // int32_t = -1
+        UNKNOWN_54    = 0x54,  // ptr
+        UNKNOWN_60    = 0x60,  // ptr (second vtable cluster)
+        UNKNOWN_68    = 0x68,  // ptr
+        UNKNOWN_70    = 0x70,  // ptr
+        UNKNOWN_78    = 0x78,  // ptr
+        FLAG_0C0      = 0xC0,  // uint8_t = 0
+        FLAG_108      = 0x108, // uint8_t = 0
+        FLAG_150      = 0x150, // uint8_t = 0
+        RESULT        = 0x178, // uint8_t = 1 on success (set by akd_step2)
+        COUNTER_B0    = 0x1B0, // uint32_t -- incremented by wrapper_threadhacks
+        FLAG_B9       = 0x1B9, // uint8_t -- set to 1 by wrapper_threadhacks on success
+        SUBOBJ_210    = 0x210, // ptr -- read by wrapper_reflection, vtable of sub-object
+        COUNTER_248   = 0x248, // uint32_t -- incremented by wrapper_reflection
+        FLAG_250      = 0x250, // uint8_t -- set to 1 by wrapper_reflection on success
+        // ... gap to 0x5F70 ...
+        PARENT_DWORD  = 0x5F70,// uint32_t -- checked against 0x4 by parent AKD
+        PARENT_PTR    = 0x5F78,// ptr -- written with RSI, tested for null by parent
+        PARENT_BYTE   = 0x5F88,// uint8_t -- tested against SIL by parent
+        PARENT_DWORD2 = 0x5F80,// uint32_t -- moved into EDX for call by parent
+        PARENT_DWORD3 = 0x5F84,// uint32_t -- decremented, tested against 0 by parent
+        PARENT_DWORD4 = 0x6BC8,// uint32_t -- tested against 0 by parent
+        PARENT_DWORD5 = 0x6BCC,// uint32_t -- tested against 0 by parent
+    };
 
-        // Condition flags tested in CLDBDoSomeStuff
-        enum class ActionFlag : uint32_t {
-            EXAM_START_1      = 0x800000,  // Full lockdown (option 1)
-            EXAM_START_2      = 0x400000,  // Full lockdown (option 2)
-            PROCTORING_MODE   = 0x20000,   // Enable proctoring
-            EXIT_REQUEST      = 0x10000,   // Request exit
-            URL_EVENT         = 0x4000,    // URL/navigation event
-        };
+    // Convert GSO offset to VA given a GSO base pointer
+    inline uintptr_t offset_to_va(uintptr_t gso_base, uint32_t offset) {
+        return gso_base + offset;
+    }
 
-        // Action string offsets within LDB.dll
-        enum class ActionString : uint32_t {
-            OPTION_1_2  = 0x15D0,  // Used for EXAM_START flags
-            OPTION_3    = 0x1670,  // Used for PROCTORING_MODE
-            OPTION_4    = 0x13D0,  // Used for EXIT_REQUEST
-            OPTION_5    = 0x1300,  // Used for URL_EVENT
-            DEFAULT     = 0x1760,  // Default handler
-        };
+    // GSO pointer stored globally by init_stub at:
+    static constexpr uintptr_t GSO_GLOBAL_PTR = 0x140CEDEA0;
+};
 
-        // IAT dispatcher types
-        constexpr uint32_t DISPATCHER_ACTION = 13;  // PUSH 13; CALL [IAT]
-        constexpr uint32_t DISPATCHER_EXIT   = 7;   // PUSH 7;  CALL [IAT]
+// ---------------------------------------------------------------------------
+// GLOBAL DATA ADDRESSES (from code references in Ghidra)
+// ---------------------------------------------------------------------------
 
-    } // namespace rldb_commands
+namespace globals {
 
+    // GS cookie / security cookie
+    static constexpr uintptr_t GS_COOKIE_RESULT = 0x140CEDE78;  // byte, SETNZ target
+    static constexpr uintptr_t GS_COOKIE_STR    = 0x140CEDE79;  // string ptr
 
-    // ========================================================================
-    // Driver IOCTL Codes — LockDownService215.sys Communication Protocol
-    // Primary: Filter Communication Port (FltCreateCommunicationPort)
-    // Secondary: DeviceIoControl (\\.\LockDownService)
-    // ========================================================================
-    namespace driver_ioctl {
+    // Security cookie check globals (from FUN_140001020)
+    static constexpr uintptr_t SEC_CHK_DWORD_1  = 0x140CEDE30;
+    static constexpr uintptr_t SEC_CHK_DWORD_2  = 0x140CEDE68;
+    static constexpr uintptr_t SEC_INIT_PTR_1   = 0x140CEDE38;
+    static constexpr uintptr_t SEC_INIT_PTR_2   = 0x140CEDE40;
+    static constexpr uintptr_t SEC_INIT_PTR_3   = 0x140CEDE50;
+    static constexpr uintptr_t SEC_INIT_DWORD   = 0x140CEDE58;  // = 2
 
-        // Device names
-        constexpr wchar_t DEVICE_NAME[]     = L"LockDownService";
-        constexpr wchar_t SYMLINK_NAME[]    = L"\\\\.\\LockDownService";
-        constexpr wchar_t SERVICE_NAME[]    = L"LockDownService215";
-        constexpr uint32_t ALTITUDE         = 47777;
+    // Parent AKD object pointers (from parent deobfuscation)
+    static constexpr uintptr_t PARENT_MAIN_OBJ   = 0x140CEDF60;  // read by parent AKD
+    static constexpr uintptr_t PARENT_SECOND_OBJ = 0x140CEDF80;  // read/written by parent
+    static constexpr uintptr_t PARENT_TERTIARY_OBJ = 0x140CEDF40; // read by parent (many sub-offs)
 
-        // User-Mode -> Kernel opcodes (via the filter port; arrive at the port
-        // dispatcher FUN_1400015c0). All read from the 2.1.6.0.0 dispatcher.
-        // "reply" = the first dword written to the output buffer.
-        // Protocol detail: offsets/ioctl.md
-        enum class CommandCode : uint32_t {
-            CRYPTO_OUT         = 0x00,  // BCrypt op on the output buffer directly
-            CRYPTO_IN          = 0x01,  // BCrypt op on caller data (param_2+2, param_2[1])
-            ENABLE_ENCRYPTION  = 0x02,  // on success sets the byte at ApDriver+0x90
-            ENCRYPTED_REQUEST  = 0x03,  // requires encryption on (else 0xC0000010); vtable dispatch
-            ENUM_A             = 0x04,  // reply 0x05 + count, records of 0xf0c bytes
-            ENUM_B             = 0x06,  // reply 0x07 + count, records of 0x710 bytes
-            ENUM_C             = 0x08,  // reply 0x09 + dword(obj+0x318) + records of 0x710 bytes
-            ENUM_D             = 0x0c,  // reply 0x0E + count, 4-byte records
-            ENUM_E             = 0x0d,  // reply 0x0F + count, 4-byte records
-            STATUS_TWO_DWORDS  = 0x0f,  // reply 0x10 + FUN_140009140(mon,0) + FUN_140009140(mon,1)
-            GET_VERSION        = 0x11,  // reply 0x12 + the two version qwords at ApDriver+0x700/+0x708
-            SET_STATE_FLAG     = 0x13,  // FltAcquireResourceExclusive; *(char*)(ApDriver+0x91) = (char)param_2[1]; no reply
-            WHOLE_PROCESS_SCAN = 0x14,  // PID + thread-ID array; requires param_3 >= 0x10; 0xC0000184 when
-                                        // DAT_14000f090 == 0; calls FUN_140008fe0; reply 0x15 + verdict.
-                                        // For each thread: ZwQueryInformationThread(Win32StartAddress) ->
-                                        // ZwQueryVirtualMemory(MemoryBasicInformation); if the start address
-                                        // does not resolve to a file-backed image section -> verdict 3
-                                        // (fileless / injected code). Per-thread cache at +0xD0.
-        };
-        // Unhandled opcodes (0x05, 0x07, 0x09-0x0b, 0x0e, 0x10, 0x12, 0x15+) fall
-        // through to `return 0` = STATUS_SUCCESS with NO output written. A caller
-        // cannot distinguish "unsupported" from "succeeded silently" by status alone.
+    // Threadhacks call target (from wrapper_threadhacks deobfuscation)
+    static constexpr uintptr_t THREADHACKS_TARG  = 0x140CEDF48;  // ptr deref by wrapper
 
-        // Dispatcher input validation, read from FUN_1400015c0
-        constexpr uint32_t DISPATCHER_MAX_IRQL        = 2;          // KeGetCurrentIrql() > 2 -> 0xC0000184
-        constexpr uint32_t STATUS_INVALID_PARAMETER   = 0xC000000D; // param_6 == NULL or param_4 == NULL
-        constexpr uint32_t STATUS_INVALID_BUFFER_SIZE = 0xC0000206; // param_3 < 4, or param_2 == NULL
-        constexpr uint32_t STATUS_BUFFER_TOO_SMALL    = 0xC0000023; // param_5 < required size
-        constexpr uint32_t STATUS_INVALID_DEVICE_STATE_NT = 0xC0000184;
-        constexpr uint32_t STATUS_ACCESS_DENIED_NT        = 0xC0000022;
+    // Monitor ID counters (from FUN_140007960)
+    static constexpr uintptr_t MONITOR_PROC_ID  = 0x140CF3A90;
+    static constexpr uintptr_t MONITOR_THREAD_ID = 0x140CF3A78;
+    static constexpr uintptr_t MONITOR_GLOB_ID   = 0x140CF4550;
 
-        // When the port is in encrypted mode, the reply STRUCT sits after a 0x108-byte
-        // (264-byte) envelope and *param_6 = required + 0x108. A client that assumes
-        // the reply starts at offset 0 will misparse every encrypted reply.
-        constexpr uint32_t ENCRYPTED_REPLY_PREFIX = 0x108;
+    // Sub-object init fields (from FUN_140006190/200/280)
+    static constexpr uintptr_t SUBOBJ_1_SIZE  = 0x140CF3248;  // = 1
+    static constexpr uintptr_t SUBOBJ_1_FLAGS = 0x140CF3250;  // = 0xf
+    static constexpr uintptr_t SUBOBJ_2_SIZE  = 0x140CF3228;  // = 0xc
+    static constexpr uintptr_t SUBOBJ_3_SIZE  = 0x140CF32A0;  // = 9
 
-        // Reply subtypes observed as the first dword of the output buffer
-        enum class ReplySubtype : uint32_t {
-            ENUM_A_REPLY      = 0x05,
-            ENUM_B_REPLY      = 0x07,
-            ENUM_C_REPLY      = 0x09,
-            ENUM_D_REPLY      = 0x0E,
-            ENUM_E_REPLY      = 0x0F,
-            STATUS_REPLY      = 0x10,
-            VERSION_REPLY     = 0x12,  // reply to GET_VERSION (opcode 0x11)
-            FILELESS_SCAN     = 0x15,  // reply to WHOLE_PROCESS_SCAN (opcode 0x14)
-        };
+    // Monitor init (from FUN_140007DD0)
+    static constexpr uintptr_t MONITOR_PTR  = 0x140CE9E08;
+    static constexpr uintptr_t MONITOR_DWORD = 0x140CE8C38;  // = 0x47b33b74
+};
 
-        // Kernel -> User-Mode notification path.
-        // The driver exposes CommunicationPortBase::sendMessage (FltSendMessage),
-        // so a kernel->user notification path exists, but its message format is
-        // not documented here (requires dynamic verification).
+// ---------------------------------------------------------------------------
+// KEY FUNCTION ADDRESSES (verified in Ghidra)
+// ---------------------------------------------------------------------------
 
-        // Driver crypto subsystem (BCrypt AES-256-CBC + RSA-2048)
-        namespace crypto {
-            constexpr uint32_t AES_KEY_SIZE   = 32;   // 256 bits
-            constexpr uint32_t AES_IV_SIZE    = 16;   // 128 bits
-            constexpr uint32_t RSA_KEY_SIZE   = 256;  // 2048 bits
-            constexpr uint32_t SHA1_HASH_SIZE = 20;
-        }
+namespace funcs {
 
-        // Driver tracking structures
-        namespace tracking {
-            constexpr uint32_t MAX_BLOCKLIST_ENTRIES = 4096;
-            constexpr uint32_t MAX_PROCESS_NAME_LEN  = 260;  // WCHAR
-        }
+    // Entry / init
+    static constexpr uintptr_t ENTRY_POINT     = 0x140001000;
+    static constexpr uintptr_t SEC_INIT        = 0x140001020;
+    static constexpr uintptr_t SEC_CHECK       = 0x1400010AF0;
 
-    } // namespace driver_ioctl
+    // ApDriver init wrappers (thin, register notification callbacks)
+    static constexpr uintptr_t APDRV_WRAP_1 = 0x140006010;
+    static constexpr uintptr_t APDRV_WRAP_2 = 0x140006040;
+    static constexpr uintptr_t APDRV_WRAP_3 = 0x140006070;
+    static constexpr uintptr_t APDRV_WRAP_4 = 0x1400060A0;
+    static constexpr uintptr_t APDRV_WRAP_5 = 0x1400060D0;
+    static constexpr uintptr_t APDRV_WRAP_6 = 0x140006100;
+    static constexpr uintptr_t APDRV_INIT_1 = 0x140006190;
+    static constexpr uintptr_t APDRV_INIT_2 = 0x140006200;
+    static constexpr uintptr_t APDRV_INIT_3 = 0x140006280;
+    static constexpr uintptr_t APDRV_REG    = 0x14036E0F0;
 
+    // Monitor callbacks
+    static constexpr uintptr_t MONITOR_CB      = 0x140007960;
+    static constexpr uintptr_t MONITOR_INIT    = 0x140007DD0;
 
-    // ========================================================================
-    // Module: LockDownBrowser.exe (x64, ~20MB, Chromium 150 based)
-    // v2.1.6.00: 20,827,072 bytes, 19,538 functions
-    // No .cldb accesses in EXE — all flag manipulation is in LDB.dll.
-    // ========================================================================
-    namespace lockdownbrowser_exe {
+    // Utility (readable, non-obfuscated)
+    static constexpr uintptr_t PE_CHECK        = 0x140AB0880;  // MZ+PE+PE32+ validation
+    static constexpr uintptr_t FIND_PE_SECTION = 0x140AB07E0;
+    static constexpr uintptr_t INT_TO_STR      = 0x140035890;  // integer decimal string
+    static constexpr uintptr_t GS_VALIDATE     = 0x140A450E0;  // GS cookie check
+    static constexpr uintptr_t ALLOC_256       = 0x140A44F90;  // allocator (size in ECX)
+    static constexpr uintptr_t GET_SINGLETON   = 0x140A88BA0;  // getter (called  4 by threadhacks)
+    static constexpr uintptr_t MEMCPY_16       = 0x140AB0AD0;  // 16-byte copy
+    static constexpr uintptr_t VTBL_DISPATCH   = 0x140AB0AA0;  // virtual method dispatch
+};
 
-        namespace window_blacklist {
-            constexpr wchar_t CHROME_WIDGETWIN_1[] = L"Chrome_WidgetWin_1";
-            constexpr wchar_t CHROME_WIDGETWIN_0[] = L"Chrome_WidgetWin_0";
-            constexpr wchar_t MOZILLA_WINDOW_CLASS[] = L"MozillaWindowClass";
-            constexpr wchar_t MOZILLA_COMPOSITOR_CLASS[] = L"MozillaCompositorWindowClass";
-        }
+// ---------------------------------------------------------------------------
+// IMPORT STUBS -- verified in Ghidra
+// ---------------------------------------------------------------------------
 
-        namespace process_blacklist {
-            // see process_blacklist.hpp (3020+ entries)
-        }
+namespace imports {
 
-        // Registry flags
-        namespace registry {
-            constexpr wchar_t KEY_STANDALONE[] = L"SOFTWARE\\Respondus\\Respondus LockDown Browser-2";
-            constexpr wchar_t KEY_OEM[]        = L"SOFTWARE\\Respondus\\LockDown Browser OEM-2";
-            constexpr wchar_t VALUE_ACTIVE[]   = L"active";
-            constexpr wchar_t VALUE_TVC[]      = L"tvc";
-            constexpr wchar_t VALUE_TVD[]      = L"tvd";
-        }
+    // FLTLIB -- driver communication (these are the ones Layer A / driver comm code uses)
+    namespace fltlib {
+        static constexpr uintptr_t filter_connect_port = 0x140364CC8;
+        static constexpr uintptr_t filter_send_message = 0x140364CCE;
+        static constexpr uintptr_t filter_get_message  = 0x140364CD4;
+        static constexpr uintptr_t filter_load         = 0x140364CDA;
+    };
 
-    } // namespace lockdownbrowser_exe
+    // BCrypt -- crypto (used by driver code, possibly by AKD encrypted channel)
+    namespace bcrypt {
+        static constexpr uintptr_t encrypt        = 0x140364D04;
+        static constexpr uintptr_t decrypt        = 0x140364D0A;
+        static constexpr uintptr_t gen_random     = 0x140364D28;
+        static constexpr uintptr_t gen_symmetric  = 0x140364CF8;
+        static constexpr uintptr_t gen_key_pair   = 0x140364CFE;
+    };
 
+    // Driver port opcodes (from analysis docs, unchanged in 2.1.6.0.2)
+    namespace port {
+        static constexpr uint32_t OPCODE_QUERY_SET_MIN     = 0x6;
+        static constexpr uint32_t OPCODE_QUERY_SET_MAX     = 0xF;
+        static constexpr uint32_t OPCODE_GET_VERSION       = 0x11;
+        static constexpr uint32_t OPCODE_SET_STATE_FLAG    = 0x13;
+        static constexpr uint32_t OPCODE_WHOLE_PROCESS    = 0x14;  // thread fileless scan
+    };
+};
 
-    // ========================================================================
-    // Driver Analysis Constants — LockDownService215.sys
-    // ========================================================================
-    namespace driver_analysis {
-        constexpr wchar_t DRIVER_NAME[]       = L"LockDownService215.sys";
-        constexpr wchar_t DRIVER_PATH[]       = L"\\SystemRoot\\System32\\drivers\\LockDownService215.sys";
-        constexpr uint32_t EXPECTED_SIZE      = 71944;  // ~70KB
-        constexpr uint32_t ALTITUDE           = 47777;
-        constexpr wchar_t LOAD_GROUP[]        = L"FSFilter Bottom";
+// ---------------------------------------------------------------------------
+// AKD ERROR/STATUS STRING ADDRESSES (2.1.6.0.2, from refs_20602.json)
+// ---------------------------------------------------------------------------
 
-        // Key kernel APIs used by the driver
-        namespace apis {
-            constexpr wchar_t PROCESS_CALLBACK[]    = L"PsSetCreateProcessNotifyRoutineEx";
-            constexpr wchar_t THREAD_CALLBACK[]     = L"PsSetCreateThreadNotifyRoutine";
-            constexpr wchar_t IMAGE_CALLBACK[]      = L"PsSetLoadImageNotifyRoutine";
-            constexpr wchar_t CODE_INTEGRITY[]      = L"CiValidateFileObject";
-            constexpr wchar_t CROSS_PROCESS_ATTACH[] = L"KeStackAttachProcess";
-            constexpr wchar_t DYNAMIC_RESOLVER[]    = L"MmGetSystemRoutineAddress";
-            // DriverLogger imports
-            constexpr wchar_t ZW_CREATE_FILE[]     = L"ZwCreateFile";
-            constexpr wchar_t ZW_WRITE_FILE[]      = L"ZwWriteFile";
-            constexpr wchar_t ZW_DELETE_FILE[]     = L"ZwDeleteFile";
-            constexpr wchar_t ZW_QUERY_DIR_FILE[]  = L"ZwQueryDirectoryFile";
-            constexpr wchar_t EX_SYS_TIME_LOCAL[]  = L"ExSystemTimeToLocalTime";
-            constexpr wchar_t RTL_TIME_FIELDS[]    = L"RtlTimeToTimeFields";
-            constexpr wchar_t FLT_ACQUIRE_RES[]    = L"FltAcquireResourceShared";
-        }
+namespace akd_str {
+    // These are in .rdata at 0x140B138xx in 2.1.6.0.2
+    // (different from 2.1.6.0.0 which had them at 0x140B0Fxxx)
+    static constexpr uintptr_t INVALID_PID              = 0x140B13840;
+    static constexpr uintptr_t FAILED_1ST_REFLECT_REQ  = 0x140B13850;
+    static constexpr uintptr_t FAILED_REFLECT_REQ      = 0x140B13880;
+    static constexpr uintptr_t FAILED_DECRYPT_REFLECT  = 0x140B138B0;
+    static constexpr uintptr_t FAILED_ENCRYPT_THREAD   = 0x140B138E0;
+    static constexpr uintptr_t DWM_LATE_DRIVER         = 0x140B13910;
+    static constexpr uintptr_t FAILED_1ST_THREAD_REQ   = 0x140B13958;
+    static constexpr uintptr_t FAILED_2ND_THREAD_REQ   = 0x140B13988;
+    static constexpr uintptr_t FAILED_DECRYPT_THREAD   = 0x140B139B8;
+};
 
-        // Internal class names (found as ASCII strings in driver)
-        namespace classes {
-            constexpr wchar_t COMM_PORT_BASE[]     = L"CommunicationPortBase";
-            constexpr wchar_t BROWSER_PORT[]       = L"BrowserCommunicationPort";
-            constexpr wchar_t PROCESS_MONITOR[]    = L"ProcessMonitor";
-            constexpr wchar_t THREAD_MONITOR[]     = L"ThreadMonitor";
-            constexpr wchar_t USERMODE_DETECTOR[]  = L"UserModeDetector";
-            constexpr wchar_t CODE_INTEGRITY[]     = L"CodeIntegrity";
-            constexpr wchar_t CRYPTO_KERNEL[]      = L"CryptoKernel";
-            constexpr wchar_t DYNAMIC_FUNCTIONS[]  = L"DynamicFunctionsKm";
-            constexpr wchar_t CMD_WRAPPER[]        = L"CmdWrapper";
-            constexpr wchar_t DWM_RESOLVER[]       = L"DwmImageResolver";
-            constexpr wchar_t BROWSER_RESOLVER[]   = L"BrowserImageResolver";
-            // New in 2.1.6.0.0
-            constexpr wchar_t DRIVER_LOGGER[]      = L"DriverLogger";
-        }
+// ---------------------------------------------------------------------------
+// DETECTION PATTERNS (for runtime scanning)
+// ---------------------------------------------------------------------------
 
-        // Connection gate — only the browser process can connect;
-        // PID mismatch -> forced disconnect
-        namespace port_gate {
-            constexpr uint32_t STATUS_INVALID_DEVICE_STATE = 0xC0000184;  // No browser PID known
-            constexpr uint32_t STATUS_ACCESS_DENIED        = 0xC0000022;  // PID mismatch
-        }
-    } // namespace driver_analysis
+namespace patterns {
 
+    //    CheckDetoursKB32 -- Detours-style hook detection   
+    // From deobfuscation docs: reads first byte at target address, checks for 0xE9 (JMP rel32)
+    // This is the actual hook test instruction. Find this pattern to locate the check.
+    //
+    // Verified instruction:  CMP byte ptr [R14], 0xE9
+    // In shellcode:  41 80 3E E9
+    //
+    // Usage: scan .text for this 4-byte pattern. The surrounding function is CheckDetoursKB32.
+    // Note: the function is in obfuscated Layer A and is NOT disassembled by Ghidra.
+    //       Its address shifts between versions -- pattern scan is the reliable way to find it.
+    static constexpr const uint8_t DETOURS_HOOK_CHECK[] = { 0x41, 0x80, 0x3E, 0xE9 };
+    static constexpr size_t DETOURS_HOOK_CHECK_LEN = 4;
 
-    // Convenience aliases
-    namespace cldb     = lockdownbrowser_dll::cldb;
-    namespace exports  = lockdownbrowser_dll::exports;
-    namespace kbproc   = lockdownbrowser_dll::hook_procedures;
-    namespace vmdet    = lockdownbrowser_dll::vm_detection;
-    namespace adbg     = lockdownbrowser_dll::anti_debug;
-    namespace quiz     = lockdownbrowser_dll::quiz_active;
-    namespace vkf12    = lockdownbrowser_dll::vk_f12;
-    namespace rldb     = rldb_commands;
-    namespace ioctl    = driver_ioctl;
-    namespace drv      = driver_analysis;
+    //    AKD function entry signatures (for locating AKD code at runtime)   
+    // These are the first bytes of each AKD function. Use with wildcard scanning
+    // (the 0x00 bytes in RIP-relative displacements are wildcards).
 
-} // namespace respondus_offsets
+    // "parent" -- same first 16 bytes in both versions
+    static constexpr const uint8_t PARENT_ENTRY[] = {
+        0x48,0x89,0x5C,0x24,0x08, 0x48,0x89,0x74,0x24,0x10, 0x57,0x48,0x83,0xEC,0x70, 0x48,0x8B};
+
+    // wrapper_reflection entry (version-dependent at byte 22)
+    static constexpr const uint8_t WRAP_REFL_ENTRY_20602[] = {
+        0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57,
+        0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57, 0x48,0x81,0xEC,0x80,0x01};
+    static constexpr const uint8_t WRAP_REFL_ENTRY_20600[] = {
+        0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57,
+        0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57, 0x48,0x81,0xEC,0x60,0x02};
+
+    // wrapper_threadhacks entry (version-dependent at byte 18)
+    static constexpr const uint8_t WRAP_THREAD_ENTRY_20602[] = {
+        0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57,
+        0x41,0x56,0x41,0x57, 0x48,0x81,0xEC,0xC0,0x00};
+    static constexpr const uint8_t WRAP_THREAD_ENTRY_20600[] = {
+        0x48,0x89,0x5C,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57,
+        0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57, 0x48,0x81,0xEC,0x20,0x01};
+
+    // helper_reflection -- stable across versions
+    static constexpr const uint8_t HELP_REFL_ENTRY[] = {
+        0x48,0x89,0x5C,0x24,0x18, 0x55,0x56,0x57, 0x41,0x54,0x41,0x55,
+        0x41,0x56,0x41,0x57, 0x48,0x8D,0xAC,0x24,0xC0,0xFE,0xFF,0xFF,
+        0x48,0x81,0xEC,0x40,0x02};
+
+    // helper_threadinfo -- stable entry
+    static constexpr const uint8_t HELP_THREAD_ENTRY[] = {
+        0x48,0x89,0x5C,0x24,0x18, 0x55,0x56,0x57, 0x41,0x54,0x41,0x55,
+        0x41,0x56,0x41,0x57, 0x48,0x8D,0xAC,0x24,0x00,0xFF,0xFF,0xFF,
+        0x48,0x81,0xEC,0x00,0x02};
+};
+
+// ---------------------------------------------------------------------------
+// HIDDEN IAT (from iat_calls.py -- 1181 slots recovered)
+// ---------------------------------------------------------------------------
+//
+// The PE import table only lists CEF runtime imports. The AKD security code
+// resolves its own API surface through hidden IAT slots in .rdata.
+//
+// iat_calls.py recovered 1181 named slots:
+//   - 583 from 27 import descriptors (standard imports)
+//   - 598 orphan slots (not referenced by any descriptor)
+//
+// The AKD code (wrapper_reflection, wrapper_threadhacks, helper_*)
+// makes ZERO API calls when emulated with stubbed returns.
+// The parent AKD function calls: GetSystemTime, SystemTimeToFileTime.
+//
+// To find which APIs the AKD code actually calls at runtime:
+//   1. Run iat_calls.py to get the full slot list
+//   2. Use emu_layerA.py with proper API stubs (not all-zero RAX)
+//   3. The hidden IAT slots are at .rdata addresses -- scan for
+//      RIP-relative references from AKD code ranges.
+//
+// Known IAT slot location: .rdata section starts at RVA 0xB0F000 (VA 0x140B0F000)
+// The slots are 8-byte aligned, interspersed with IMAGE_IMPORT_BY_NAME RVAs.
+//
+// ---------------------------------------------------------------------------
+// Hook Module (lockdownbrowser.dll, 2.1.6.0.2)
+// ---------------------------------------------------------------------------
+//
+// lockdownbrowser.dll is a separate PE loaded by LockDownBrowser.exe.
+// It implements the keyboard/mouse hook subsystem that blocks input during exams.
+// All functions use obfuscated names (CLDBDo*). The real logic is in the
+// hook procedures and the data used to track hook state.
+//
+// Layout:
+//   .text:  0x180001000 - 0x18000E9FF  (96KB)
+//   .rdata: 0x18000F000 - 0x180018BFF  (64KB, includes IAT)
+//   .data:  0x180019000 - 0x18001AB6F  (66KB, hook state + globals)
+//   .cldb:  0x18001C000 - 0x18001C1FF  (512B, CLDB control data)
+//   .fptable: 0x18001D000 - 0x18001D1FF (512B, function pointer table)
+
+namespace hookdll {
+
+    //    Base / layout   
+    static constexpr uintptr_t DLL_BASE   = 0x180000000;
+    static constexpr uintptr_t TEXT_START = 0x180001000;
+    static constexpr uintptr_t TEXT_END   = 0x18000E9FF;
+    static constexpr uintptr_t RDATA_START = 0x18000F000;
+    static constexpr uintptr_t RDATA_END   = 0x180018BFF;
+    static constexpr uintptr_t DATA_START  = 0x180019000;
+    static constexpr uintptr_t DATA_END    = 0x18001AB6F;
+
+    //    Exported (obfuscated) entry points   
+    // Only the DLL entry point (DllMain) is informative from the exports.
+    // The CLDB-named exports are stubs -- the real logic is internal.
+    static constexpr uintptr_t EXPORT_DLLMAIN      = 0x180001ED4;  // entry / DllMain
+    static constexpr uintptr_t EXPORT_CLDB_DO_1    = 0x180001000;  // CLDBDoSomeOtherStuff
+    static constexpr uintptr_t EXPORT_CLDB_DO_2    = 0x1800010E0;  // CLDBDoSomeOtherStuffs
+    static constexpr uintptr_t EXPORT_CLDB_DO_3    = 0x180001110;  // CLDBDoSomeStuff
+    static constexpr uintptr_t EXPORT_CLDB_DO_4    = 0x180001330;  // CLDBDoYetMoreStuff
+
+    //    IAT: hook-related imports   
+    // IAT base in .rdata. Each slot is 8 bytes (x64). Verified by disassembly:
+    //   GetAsyncKeyState is called via [0x18000F278] confirmed in FUN_1800013A0/14A0/17C0/18E0/1AD0.
+    //   EXTERNAL ordinals: Unhook=1, SetWindowsHookExA=2, SendInput=3, CallNextHookEx=4, GetAsyncKeyState=5.
+    static constexpr uintptr_t IAT_BASE = 0x18000F250;
+
+    static constexpr uintptr_t IAT_UnhookWindowsHookEx = 0x18000F258;
+    static constexpr uintptr_t IAT_SetWindowsHookExA    = 0x18000F260;
+    static constexpr uintptr_t IAT_SendInput           = 0x18000F268;
+    static constexpr uintptr_t IAT_CallNextHookEx      = 0x18000F270;
+    static constexpr uintptr_t IAT_GetAsyncKeyState     = 0x18000F278;
+
+    //    Hook state (in .data, tracked at runtime)   
+    // These are HHOOK handles written by SetWindowsHookExA and cleared by UnhookWindowsHookEx.
+    // Three WH_KEYBOARD_LL hooks can be active simultaneously (one per hook procedure).
+    static constexpr uintptr_t HOOK_HANDLE_1 = 0x18001C000;  // DAT_18001C000 -- WH_KEYBOARD_LL (proc 0x1800013A0 or 0x1800018E0 or 0x1800016F0 or 0x1800014A0 or 0x1800017C0)
+    static constexpr uintptr_t HOOK_HANDLE_2 = 0x18001C010;  // DAT_18001C010 -- WH_MOUSE_LL (proc LAB_180001B80)
+    static constexpr uintptr_t HOOK_HANDLE_3 = 0x18001C008;  // DAT_18001C008 -- WH_GETMESSAGE (proc LAB_1800019E0 or FUN_180001AD0)
+
+    //    Hook installation / removal (by CLDBDoSomeStuff family)   
+    // CLDBDoSomeStuff (0x180001110):
+    //   - On input & 0x40 == 0: unhook all 3 hooks, send synthetic key input via SendInput.
+    //   - On input & 0x40 != 0: install hooks based on flag bits (bit 0xF, 9, 8, 0xE, 0x2000, 0x80).
+    //     Installs WH_KEYBOARD_LL (id=0xD) and WH_MOUSE_LL (id=10) always.
+    //     Installs WH_GETMESSAGE (id=7) when bit 0x2000 or bit 0x80 set.
+    // CLDBDoSomeOtherStuff (0x180001000): install WH_KEYBOARD_LL only, bump flag by 0x800.
+    // CLDBDoSomeOtherStuffs (0x1800010E0): query active hooks, return bitmask (0x400/0x1000/0x800).
+    // CLDBDoYetMoreStuff (0x180001330): install WH_GETMESSAGE only.
+
+    //    Hook procedures   
+    // WH_KEYBOARD_LL procedures (5 candidates, selected by flag bits at install time):
+    //   FUN_1800013A0 -- blocks: Alt+Tab (0x11+0x12), Ctrl+Esc-like, Alt+F4-like, F10/F12 menu keys.
+    //                   Blocks keys 0x5B-0x5D (keyboard edge keys). Uses GetAsyncKeyState(0x5B/0x5C).
+    //   FUN_1800014A0 -- blocks: tracks keydown state for 0x5B/0x5C, sends synthetic key input via SendInput.
+    //                   Also blocks when key 0x48 detected with 0x5B down, or 0x5B with wParam=0x101.
+    //                   Writes DAT_180019AD8 with pressed scancode (0x5B/0x5C).
+    //   FUN_1800016F0 -- selected when bit 0xE set and (bit 0xF==0 or bit 9==0 and bit 8==0).
+    //   FUN_1800017C0 -- selected when bit 9 set. Blocks wide range of keys, tracks Alt/Alt combinations.
+    //                   Blocks VK codes outside [0x70..0x??] range and special keys 0x5B/0x5C/0x1B.
+    //                   Checks key state via GetAsyncKeyState for 0x11/0x12/0x5B/0x5C.
+    //   FUN_1800018E0 -- selected when bit 0xE set (alt to 13A0). Similar to 13A0 but simpler logic.
+    //                   Blocks Alt+Tab, Ctrl+Esc, Alt+F4, F10-like, key 0x1B with Alt, 0x5B-0x5D.
+    //
+    // WH_MSGFILTER hook procedure (LAB_180001B80):
+    //   Blocks WM_SYSCOMMAND (0x204..0x20D range, bits in 0x387) and WM_CONTEXTMENU (0xA3..0xAE range, bits in 0x70F).
+    //   Blocks WM_SYSKEYDOWN (0x201) if Alt (0x11) is held.
+    //   Calls CallNextHookEx(DAT_18001C008, ...) for allowed messages.
+    //
+    // WH_GETMESSAGE hook procedure (LAB_1800019E0):
+    //   Already seen as part of FUN_180001AD0 disassembly (the function at 1AD0 handles the logic).
+    //   Actually the label at 19E0 is the start of the getmessage hook proc body.
+    //   Blocks specific window messages, returns 1 to eat them.
+
+    static constexpr uintptr_t HOOK_PROC_KBD_13A0 = 0x1800013A0;
+    static constexpr uintptr_t HOOK_PROC_KBD_14A0 = 0x1800014A0;
+    static constexpr uintptr_t HOOK_PROC_KBD_16F0 = 0x1800016F0;
+    static constexpr uintptr_t HOOK_PROC_KBD_17C0 = 0x1800017C0;
+    static constexpr uintptr_t HOOK_PROC_KBD_18E0 = 0x1800018E0;
+    static constexpr uintptr_t HOOK_PROC_MSGFILTER = 0x180001B80;  // label, not a named function
+    static constexpr uintptr_t HOOK_PROC_GETMSG    = 0x1800019E0;  // label, not a named function
+    static constexpr uintptr_t HOOK_PROC_WH_GETMESSAGE_AD = 0x180001AD0;  // alternative WH_GETMESSAGE proc
+
+    //    Hook configuration / window handle   
+    static constexpr uintptr_t HOOK_WINDOW_HANDLE = 0x180019AD0;  // DAT_180019AD0 -- window handle passed to SetWindowsHookExA (4th param)
+    static constexpr uintptr_t HOOK_LAST_SCANCODE = 0x180019AD8;  // DAT_180019AD8 -- last pressed scancode (0x5B/0x5C/0)
+    static constexpr uintptr_t HOOK_FLAG_ADC = 0x180019ADC;       // DAT_180019ADC -- flag byte (reset in FUN_1800014A0)
+    static constexpr uintptr_t HOOK_FLAG_ADE = 0x180019AE0;       // DAT_180019AE0 -- flag byte (reset in FUN_1800014A0)
+    static constexpr uintptr_t HOOK_FLAG_AE4 = 0x180019AE4;       // DAT_180019AE4 -- flag byte (set/used in FUN_1800014A0)
+    static constexpr uintptr_t HOOK_REFCOUNT = 0x180019AE8;       // DAT_180019AE8 -- reference count for CRT init/shutdown
+    static constexpr uintptr_t HOOK_SLIST = 0x180019AF0;         // DAT_180019AF0 -- singly-linked list head (initialized by FUN_180001FC4)
+
+    //    Anti-debug / anti-tamper state   
+    static constexpr uintptr_t ANTI_DEBUG_INIT_DONE = 0x18000F330;  // DAT_18000F330 -- flag checked in FUN_180001DAC
+    static constexpr uintptr_t ANTI_DEBUG_GUARD_DISPATCH = 0x18000F298;  // PTR__guard_dispatch_icall -- CFG dispatch
+    static constexpr uintptr_t ANTI_DEBUG_EXCEPTION_FILTER = 0x18001C000;  // set by __scrt_dllmain_exception_filter
+
+    //    DLL lifecycle / CRT init   
+    // FUN_180001DAC is the main DLL lifecycle dispatcher (called from entry/DllMain).
+    // It checks ANTI_DEBUG_INIT_DONE, calls FUN_180001BC0 (DLL_PROCESS_ATTACH/DETACH handler),
+    // FUN_180001BB0 (stores param_1 as HOOK_WINDOW_HANDLE), and FUN_180001D28 (cleanup).
+    //
+    // FUN_180001BB0: stores its param as HOOK_WINDOW_HANDLE (0x180019AD0).
+    // FUN_180001BC0: on DLL_PROCESS_ATTACH calls FUN_180001C10; on DETACH calls FUN_1800020BC.
+    // FUN_180001C10: CRT thread-attach handler. Acquires startup lock, calls:
+    //   - FUN_18000207C (check if already initialized)
+    //   - FUN_180002488 (guard dispatch_icall check on array at 0x180017230)
+    //   - FUN_180002488 (init slist at DAT_180019AF0)
+    //   - FUN_180001FF0 (sets flags at DAT_180019B00 and DAT_180019B08)
+    //   - FUN_180004FF8 (CFG check on guard_dispatch_icall at 0x18000F2D0/F2F0)
+    //   - FUN_180004FC0 (CFG check on guard_dispatch_icall at 0x18000F2C0/F2C8)
+    // FUN_180001D28: CRT thread-detach handler. Decrements HOOK_REFCOUNT, calls:
+    //   - FUN_180001FD4 (flush slist at DAT_180019AF0)
+    //   - FUN_1800024C4 (guard dispatch_icall check on array at 0x180017240)
+    // FUN_1800020BC: DLL_PROCESS_DETACH handler. Calls FUN_180005D58 and FUN_180002A48.
+
+    //    Anti-debug: FUN_180001F14 (called from FUN_180001F14, CRT init)   
+    // Generates a 48-bit random value seeded from:
+    //   - GetSystemTimeAsFileTime
+    //   - GetCurrentThreadId() ^ time_low
+    //   - GetCurrentProcessId() ^ (time_low ^ thread_id)
+    //   - QueryPerformanceCounter
+    // Stores at DAT_180019040 (48-bit). If result == 0x2B992DFA232 (unlikely), retries with 0x2B992DFA233.
+    // Then sets DAT_180019080 = ~DAT_180019040.
+    // This is a per-session random canary -- likely used for integrity checks or as a key seed.
+
+    static constexpr uintptr_t ANTI_DEBUG_RANDOM_CANARY  = 0x180019040;  // DAT_180019040 -- 48-bit random value
+    static constexpr uintptr_t ANTI_DEBUG_RANDOM_CANARY2 = 0x180019080; // DAT_180019080 -- ~canary (complement)
+
+    //    Known DLL function RVA (for pattern scanning)   
+    // The DLL uses obfuscated exports + internal functions. Key RVAs for pattern scanning:
+    //   DllMain (entry):         0xED4  -- thin dispatcher, calls FUN_180001F14 on attach + FUN_180001DAC
+    //   FUN_1800013A0 (kbd):    0x13A0 -- WH_KEYBOARD_LL proc (Alt+Tab/Ctrl+Esc/F10/F12 blocker)
+    //   FUN_1800014A0 (kbd):    0x14A0 -- WH_KEYBOARD_LL proc (SendInput-based blocker)
+    //   FUN_1800017C0 (kbd):    0x17C0 -- WH_KEYBOARD_LL proc (wide key block)
+    //   FUN_1800018E0 (kbd):    0x18E0 -- WH_KEYBOARD_LL proc (simpler alt-blocker)
+    //   FUN_180001AD0 (getmsg): 0x1AD0 -- WH_GETMESSAGE proc (blocks sys messages + Alt+space)
+    //   CLDBDoSomeStuff:         0x1110 -- main hook install/remove dispatcher
+
+    //    FUNC_180004FF8 / FUNC_180004FC0 -- CFG-guarded calls   
+    // These are called from FUN_180001C10 (DLL_THREAD_ATTACH) and are CFG-protected.
+    // They likely initialize additional security subsystems. Addresses in .text beyond 0x180002FFF.
+    // Specific addresses not yet determined -- they are referenced as pointers in FUN_180001C10.
+
+    //    Other notable functions   
+    static constexpr uintptr_t FUN_180001F14 = 0x180001F14;  // random canary generator (GetSystemTimeAsFileTime + PID/TID + QPC)
+    static constexpr uintptr_t FUN_180001FC4 = 0x180001FC4;  // InitializeSListHead(&DAT_180019AF0)
+    static constexpr uintptr_t FUN_180001FD4 = 0x180001FD4;  // FUN_1800029E0(&DAT_180019AF0) -- flush slist
+    static constexpr uintptr_t FUN_180001FF0 = 0x180001FF0;  // sets DAT_180019B00 |= 0x24, DAT_180019B08 |= 2
+    static constexpr uintptr_t FUN_18000207C = 0x18000207C;  // returns FUN_1800021B4(0) != 0
+    static constexpr uintptr_t FUN_1800020BC = 0x1800020BC;  // DLL_PROCESS_DETACH: calls FUN_180005D58 + FUN_180002A48
+    static constexpr uintptr_t FUN_180002178 = 0x180002178;  // called from FUN_180001C10, returns char
+    static constexpr uintptr_t FUN_180002488 = 0x180002488;  // checks array at 0x180017230 for nonzero entries, calls guard_icall
+    static constexpr uintptr_t FUN_1800024C4 = 0x1800024C4;  // checks array at 0x180017240 for nonzero entries, calls guard_icall
+
+    //    Guard/callback array base (used by FUN_180002488/24C4)   
+    static constexpr uintptr_t GUARD_ARRAY_1 = 0x180017230;  // array checked by FUN_180002488
+    static constexpr uintptr_t GUARD_ARRAY_2 = 0x180017240;  // array checked by FUN_1800024C4
+
+    //    SLIST header   
+    static constexpr uintptr_t SLIST_HEADER = 0x180019AF0;  // initialized by FUN_180001FC4, flushed by FUN_180001FD4
+
+    //    Flag bytes at 0x180019B00/19B08 (set by FUN_180001FF0)   
+    static constexpr uintptr_t FLAG_B00 = 0x180019B00;  // set to 0x24 (36) by FUN_180001FF0
+    static constexpr uintptr_t FLAG_B08 = 0x180019B08;  // set to 2 by FUN_180001FF0
+};
+

@@ -1,8 +1,9 @@
-# LDB.dll Export Function Map
+# LockDownBrowser.dll Export Function Map
 
-**Version:** v2.1.6.00 (LDB x64)
-**Module:** LockDownBrowser.dll (LDB.dll)
-**Generated:** 2026-09-16
+**Version:** 2.1.6.0.2 (LDB x64)
+**Module:** LockDownBrowser.dll
+**Generated:** 2026-10-11
+**Source:** Ghidra live session + runtime verification (monitor_lockdown.py)
 
 ---
 

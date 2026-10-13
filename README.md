@@ -1,13 +1,9 @@
 # Respondus LockDown Browser — Offsets, Signatures & Analysis
 
-Latest offsets, IOCTL protocol, RLDB commands, and analysis. Updated with every version.
+Offsets, IOCTL protocol, RLDB commands, and analysis for **LockDownBrowser 2.1.6.0.2** (EXE) + **LockDownBrowser.dll** + **LockDownService215.sys**.
 
-**Latest versions:**
-- EXE: `2.1.6.00` (Chrome/150.0.0.0)
-- DLL: `23.10.31.1` (LDB.dll)
-- Driver: `2.16.0.0` (LockDownService215.sys — by ApriorIT)
-
-**Updated:** 2026-09-16
+**Version:** 2.1.6.0.2
+**Updated:** 2026-10-11
 
 ---
 
@@ -17,112 +13,127 @@ Latest offsets, IOCTL protocol, RLDB commands, and analysis. Updated with every 
 
 | File | Description |
 | :--- | :--- |
-| `offsets.hpp` | C++ header with all offsets, sigscans, IOCTL codes, RLDB codes, quiz_active, driver analysis constants |
-| `exports.md` | DLL export function map |
-| `process_blacklist.hpp` | 3020+ blacklisted process entries in UTF-16LE |
-| `ioctl.md` | Driver communication protocol specification (filter port opcodes read from the dispatcher) |
-| `rldb_commands.md` | RLDB URL command reference (57 commands documented) |
-| `quiz_active.md` | Quiz active flag analysis (user-mode and kernel-mode) |
+| `offsets.hpp` | C++ header with all offsets, signatures, GSO layout, AKD function RVAs, hook module data, IOCTL codes, and RLDB command VAs |
+| `exports.md` | LockDownBrowser.dll export function map (4 obfuscated exports) |
+| `process_blacklist.hpp` | Blacklisted process names dumped from a live 2.1.6.0.2 process |
+| `ioctl.md` | Driver communication protocol specification (filter port opcodes from dispatcher `FUN_1400015c0`) |
+| `rldb_commands.md` | RLDB URL command reference (57 commands documented with VAs) |
+| `quiz_active.md` | Quiz active flag analysis (user-mode handler + registry persistence) |
 
 ---
 
-## Target: LockDownBrowser.dll (LDB.dll)
+## Target: LockDownBrowser.dll (hook module)
 
 | Target | Type |
 | :--- | :--- |
-| `.cldb` flag slots (LOCKDOWN/PROCTORING/EXIT) | Static RVA + 32 verified x64 access sites |
+| `.cldb` flag slots (LOCKDOWN/PROCTORING/EXIT) | Static RVA + verified x64 access sites |
 | DLL exports (4 functions, ordinals 1-4) | Static RVA + Sigscan |
-| Keyboard hook callback procedures | Static RVA |
-| **VK_F12 block (removed in 2.1.6.0.0)** | Byte pattern `83 F9 7B` — 0 occurrences |
-| Action strings and dispatcher codes | Static RVA |
-| **RLDB command handlers** | URL parameter → condition flag mapping |
+| Keyboard hook callback procedures (5 WH_KEYBOARD_LL + 2 message hooks) | Static RVA + decompiled logic |
+| IAT entries for hook imports (SetWindowsHookExA, UnhookWindowsHookEx, CallNextHookEx, SendInput, GetAsyncKeyState) | Computed IAT base + slot offsets |
+| Hook state variables (3 HHOOK handles, window handle, scancode, flags) | Static addresses in `.data` |
+| Anti-debug canary generator (`FUN_180001F14`) | Static RVA + algorithm |
+| CRT init/shutdown lifecycle | Static RVAs + call graph |
 
 ### Logic Patterns
 
-* **Find `.cldb` section:** 
+* **Find `.cldb` section:**
   `Walk PE sections` → `match name .cldb` → `get VirtualAddress` (expect `0x1C000` on x64)
-* **Find flag sites:** 
+* **Find flag sites:**
   `Scan .text for RIP-relative 48 89 / 48 8B / 48 83 3D / 48 39` → `resolve disp32 (target = insn_addr + insn_len + disp)` → `check if target falls in .cldb range`
-* **Find quiz_active:** 
+* **Find quiz_active:**
   `Scan .text for C7 05 [disp32] 01/00` → `resolve disp32` → `check if target in .data`
-* **Find exports:** 
+* **Find exports:**
   `Parse PE export directory` → `match ?CLDBDo prefix string`
-* **Find hook call sites:** 
+* **Find hook call sites:**
   `Scan .text for FF 15` → `resolve IAT` → `check if user32!SetWindowsHookExA`
 
 ---
 
-## Target: LockDownService215.sys (Tuff lil ApriorIT driver)
+## Target: LockDownService215.sys (ApriorIT minifilter driver)
 
 | Target | Type |
 | :--- | :--- |
-| **Filter Communication Port** (`\ApDriverPort`) | Opcodes read from the dispatcher + reply framing |
+| **Filter Communication Port** (`\\.\ApDriverPort`) | Opcodes read from dispatcher `FUN_1400015c0` + reply framing |
 | **Connection gate** | Strict PID allowlist, forced disconnect on mismatch |
 | **Kernel notifications** | PsSetCreateProcessNotifyRoutineEx, PsSetCreateThreadNotifyRoutine, PsSetLoadImageNotifyRoutine |
 | **Crypto subsystem** | BCrypt AES-256-CBC + RSA-2048 |
 | **Code integrity** | CiValidateFileObject signature validation |
 | **Overlay detection** | DwmImageResolver, BrowserImageResolver |
-| **DriverLogger (new)** | Kernel-side logging to `C:\Users\Public\Documents\` |
-| **Whole-process fileless scan (new)** | Opcode `0x14` — batch thread verification |
+| **DriverLogger** | Kernel-side logging to `C:\Users\Public\Documents\` |
+| **Whole-process fileless scan** | Opcode `0x14` — batch thread verification via ZwQueryInformationThread + ZwQueryVirtualMemory |
 
 See `ioctl.md` for complete protocol documentation.
 
 ---
 
-## Target: LockDownBrowser.exe (Main EXE)
+## Target: LockDownBrowser.exe (Main EXE, 2.1.6.0.2)
 
 | Target | Type |
 | :--- | :--- |
-| Window class blacklist | Static strings |
-| Process blacklist (3020+ entries) | Heap-allocated, UTF-16LE strings |
+| Version detection | Pattern scan `.text` for `sub rsp` operand differences in wrapper_reflection/wrapper_threadhacks |
+| AKD detection subsystem | Encrypted driver channel via `akd_mediator`; functions: `parent`, `wrapper_reflection`, `wrapper_threadhacks`, `helper_reflection`, `helper_threadinfo`, `init_stub`, `akd_step1`, `akd_step2` |
+| GlobalSecurityObject (GSO) | 26+ fields at known offsets; pointer at `0x140CEDEA0` |
+| CheckDetoursKB32 hook detection | `CMP byte ptr [R14], 0xE9` — pattern `41 80 3E E9` |
+| Client-side driver install | `FilterLoad` + `SetupAPI` imports |
+| Driver communication | `CreateFileW` + `DeviceIoControl`, via `fltlib` hidden IAT |
+| Process blacklist | Heap-allocated UTF-16LE strings (3020+ entries) |
+| Window class blacklist | Static strings in `.rdata` |
 | Registry flags (`active`, `tvc`, `tvd`) | `HKCU\SOFTWARE\Respondus\` |
-| **RLDB command strings** | Embedded in `.rdata` |
-| **AKD detection subsystem (new)** | Encrypted driver channel via `akd_mediator` |
-| **CheckDetours hook detection** | JMP rel32 (`0xE9`) test confirmed by emulation |
-| **Client-side driver install (new)** | `FilterLoad` + `SetupAPI` |
-| Driver communication | `CreateFileW` + `DeviceIoControl`, filtered via `fltlib` |
+| RLDB command strings | 57 embedded tokens in `.rdata` |
+| Quiz active flag | `rldbqn=1` / `rldbxb=1` handler at `0x14006BCA0` |
 
 ---
 
-## New in This Update
+## New in 2.1.6.0.2 (vs 2.1.6.0.0)
 
-### 1. DriverLogger (`ioctl.md` §11)
-Kernel-side logging subsystem:
-- Writes timestamped lines to `\??\C:\Users\Public\Documents\<YYYY-MM-DD>.log`
-- Six new functions; source of all 12 new driver imports
-- Filename is date-derived with numeric-suffix rotation
-- Line prefix `[YYYY-MM-DD HH:MM:SS]`
+### AKD Detection Subsystem Restructured
 
-### 2. Whole-Process Fileless Scan (opcode `0x14`)
-User mode supplies a PID plus a thread-ID array and gets one verdict:
-- Per thread: `ZwQueryInformationThread(Win32StartAddress)` → `ZwQueryVirtualMemory(MemoryBasicInformation)`
-- If the start address does not resolve to a file-backed image section → verdict 3 (fileless/injected code)
-- Per-thread state cache at `+0xD0` avoids re-probing
-- Driven by the EXE's AKD subsystem for both the browser process and DWM
+2.1.6.0.2 replaces the single `AKD init` function (2.1.6.0.0: `0x140274320`) with a three-stage pipeline:
 
-### 3. AKD Detection Subsystem (EXE)
-New usermode detection layer talking to the driver over an encrypted filter-port channel:
-- `GlobalSecurityObject::AKD_DetectReflectionLoad`
-- `AKD_DetectThreadHacks` (`m_browser` / `m_dwm` flags)
-- `akd_mediator.connect()` + `dllMonitor->start()`
-- Includes a DWM integrity check with an explicit refusal path
+1. **`init_stub` (`0x140275970`)** — allocates and initializes the GlobalSecurityObject, stores pointer at `0x140CEDEA0`
+2. **`akd_step1` (`0x140043480`)** — heavy computation, no API calls reached
+3. **`akd_step2` (`0x140024260`)** — heavy computation, sets `GSO+RESULT` on success
 
-### 4. Three New Port Opcodes (`ioctl.md`)
-- `0x11` — version query (reply `0x12` + two version qwords)
-- `0x13` — state flag set (writes the state byte at `ApDriver+0x91`)
-- `0x14` — whole-process fileless scan (reply `0x15` + verdict)
+### Version Detection Patterns
 
-### 5. VK_F12 No Longer Blocked (HookDLL)
-The three `WH_KEYBOARD_LL` hook procedures no longer contain the `cmp ecx, 0x7b` (VK_F12) arm that swallowed F12 key-down and key-up globally. Byte pattern `83 F9 7B` went from 3 occurrences to 0. Whether the block was relocated (CEF accelerator path / obfuscated EXE code) or dropped entirely needs a runtime test.
+The `sub rsp` operand in `wrapper_reflection` and `wrapper_threadhacks` differs between versions:
 
-### 6. Client-Side Driver Installation (EXE)
-Newly imports `FLTLIB.DLL: FilterLoad`, four `SETUPAPI.dll` calls, `KERNEL32: VirtualQueryEx`, plus a `SeLoadDriverPrivilege` string.
+| Function | 2.1.6.0.0 | 2.1.6.0.2 |
+|----------|-----------|-----------|
+| wrapper_reflection | `sub rsp, 0x260` | `sub rsp, 0x180` |
+| wrapper_threadhacks | `sub rsp, 0x120` | `sub rsp, 0xC0` |
+
+### GSO Field Layout
+
+The GlobalSecurityObject is now allocated by `init_stub` rather than being a static/global. Known fields:
+
+| Offset | Field | Description |
+|--------|-------|-------------|
+| 0x00 | VTABLE_1 | vtable ptr |
+| 0x08 | VTABLE_2 | vtable ptr (self-reference) |
+| 0x10 | VTABLE_3 | vtable ptr |
+| 0x18 | VTBL_WORD | uint16_t |
+| 0x50-0x78 | UNKNOWN_* | vtable cluster + ptrs |
+| 0xC0 | FLAG_0C0 | uint8_t |
+| 0x108 | FLAG_108 | uint8_t |
+| 0x150 | FLAG_150 | uint8_t |
+| 0x178 | RESULT | uint8_t — set by akd_step2 |
+| 0x1B0 | COUNTER_B0 | uint32_t — incremented by wrapper_threadhacks |
+| 0x1B9 | FLAG_B9 | uint8_t — set by wrapper_threadhacks |
+| 0x210 | SUBOBJ_210 | ptr — vtable of sub-object |
+| 0x248 | COUNTER_248 | uint32_t — incremented by wrapper_reflection |
+| 0x250 | FLAG_250 | uint8_t — set by wrapper_reflection |
+| 0x5F70 | PARENT_DWORD | uint32_t — checked by parent AKD |
+| 0x5F78 | PARENT_PTR | ptr |
+| 0x5F80-0x6BCC | PARENT_* | parent AKD state fields |
+
+### Hook Module Changes
+
+The hook module (`LockDownBrowser.dll`) in 2.1.6.0.2 uses 5 WH_KEYBOARD_LL procedures (vs fewer in prior versions), selected at install time by flag bits. VK_F12 is no longer blocked globally in the hook procedures.
 
 ---
 
 ## Credits
-
-If you repost or use this, please credit one of the following:
 
 * **GitHub:** [arcticdev00](https://github.com/arcticdev00)
 * **Discord:** [Join the server](https://discord.gg/GyBxnYZsXN)
