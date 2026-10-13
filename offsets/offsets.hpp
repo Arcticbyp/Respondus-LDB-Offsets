@@ -3,25 +3,10 @@
 
 /*
  * LockDownBrowser 2.1.6.0.2 - offsets.hpp
- * Sources: Ghidra MCP (2026-10-11) + deobfuscation scripts + live Ghidra session
- *           (emu_layerA.py, deobf.py, iat_calls.py) + existing analysis JSON
- *
- * Only verified, actionable data. No filler.
  */
 
 namespace ldb {
 
-// ---------------------------------------------------------------------------
-// VERSION
-// ---------------------------------------------------------------------------
-
-struct version {
-    static constexpr const char* CURRENT = "2.1.6.0.2";
-
-    static constexpr uintptr_t EXE_BASE = 0x140000000;
-    static constexpr uintptr_t DLL_BASE = 0x180000000;
-    static constexpr uintptr_t DRV_BASE = 0x140000000;
-};
 
 // ---------------------------------------------------------------------------
 // VERSION DETECTION -- pattern-scan the .text section
@@ -54,7 +39,7 @@ namespace version_detect {
 };
 
 // ---------------------------------------------------------------------------
-// AKD FUNCTION SIGNATURES (from akd_targets_20602.json / akd_targets_20600.json)
+// AKD FUNCTION SIGNATURES
 // ---------------------------------------------------------------------------
 
 namespace akd {
@@ -172,7 +157,7 @@ namespace akd {
 };
 
 // ---------------------------------------------------------------------------
-// GlobalSecurityObject (from init_stub deobfuscation, 2.1.6.0.2)
+// GlobalSecurityObject 
 // ---------------------------------------------------------------------------
 
 namespace gso {
@@ -298,7 +283,7 @@ namespace funcs {
 };
 
 // ---------------------------------------------------------------------------
-// IMPORT STUBS -- verified in Ghidra
+// IMPORT STUBS 
 // ---------------------------------------------------------------------------
 
 namespace imports {
@@ -331,7 +316,7 @@ namespace imports {
 };
 
 // ---------------------------------------------------------------------------
-// AKD ERROR/STATUS STRING ADDRESSES (2.1.6.0.2, from refs_20602.json)
+// AKD ERROR/STATUS STRING ADDRESSES 
 // ---------------------------------------------------------------------------
 
 namespace akd_str {
@@ -349,7 +334,7 @@ namespace akd_str {
 };
 
 // ---------------------------------------------------------------------------
-// DETECTION PATTERNS (for runtime scanning)
+// DETECTION PATTERNS 
 // ---------------------------------------------------------------------------
 
 namespace patterns {
@@ -411,19 +396,10 @@ namespace patterns {
 // The PE import table only lists CEF runtime imports. The AKD security code
 // resolves its own API surface through hidden IAT slots in .rdata.
 //
-// iat_calls.py recovered 1181 named slots:
-//   - 583 from 27 import descriptors (standard imports)
-//   - 598 orphan slots (not referenced by any descriptor)
 //
 // The AKD code (wrapper_reflection, wrapper_threadhacks, helper_*)
 // makes ZERO API calls when emulated with stubbed returns.
 // The parent AKD function calls: GetSystemTime, SystemTimeToFileTime.
-//
-// To find which APIs the AKD code actually calls at runtime:
-//   1. Run iat_calls.py to get the full slot list
-//   2. Use emu_layerA.py with proper API stubs (not all-zero RAX)
-//   3. The hidden IAT slots are at .rdata addresses -- scan for
-//      RIP-relative references from AKD code ranges.
 //
 // Known IAT slot location: .rdata section starts at RVA 0xB0F000 (VA 0x140B0F000)
 // The slots are 8-byte aligned, interspersed with IMAGE_IMPORT_BY_NAME RVAs.
@@ -436,13 +412,6 @@ namespace patterns {
 // It implements the keyboard/mouse hook subsystem that blocks input during exams.
 // All functions use obfuscated names (CLDBDo*). The real logic is in the
 // hook procedures and the data used to track hook state.
-//
-// Layout:
-//   .text:  0x180001000 - 0x18000E9FF  (96KB)
-//   .rdata: 0x18000F000 - 0x180018BFF  (64KB, includes IAT)
-//   .data:  0x180019000 - 0x18001AB6F  (66KB, hook state + globals)
-//   .cldb:  0x18001C000 - 0x18001C1FF  (512B, CLDB control data)
-//   .fptable: 0x18001D000 - 0x18001D1FF (512B, function pointer table)
 
 namespace hookdll {
 
@@ -492,21 +461,6 @@ namespace hookdll {
     // CLDBDoSomeOtherStuff (0x180001000): install WH_KEYBOARD_LL only, bump flag by 0x800.
     // CLDBDoSomeOtherStuffs (0x1800010E0): query active hooks, return bitmask (0x400/0x1000/0x800).
     // CLDBDoYetMoreStuff (0x180001330): install WH_GETMESSAGE only.
-
-    //    Hook procedures   
-    // WH_KEYBOARD_LL procedures (5 candidates, selected by flag bits at install time):
-    //   FUN_1800013A0 -- blocks: Alt+Tab (0x11+0x12), Ctrl+Esc-like, Alt+F4-like, F10/F12 menu keys.
-    //                   Blocks keys 0x5B-0x5D (keyboard edge keys). Uses GetAsyncKeyState(0x5B/0x5C).
-    //   FUN_1800014A0 -- blocks: tracks keydown state for 0x5B/0x5C, sends synthetic key input via SendInput.
-    //                   Also blocks when key 0x48 detected with 0x5B down, or 0x5B with wParam=0x101.
-    //                   Writes DAT_180019AD8 with pressed scancode (0x5B/0x5C).
-    //   FUN_1800016F0 -- selected when bit 0xE set and (bit 0xF==0 or bit 9==0 and bit 8==0).
-    //   FUN_1800017C0 -- selected when bit 9 set. Blocks wide range of keys, tracks Alt/Alt combinations.
-    //                   Blocks VK codes outside [0x70..0x??] range and special keys 0x5B/0x5C/0x1B.
-    //                   Checks key state via GetAsyncKeyState for 0x11/0x12/0x5B/0x5C.
-    //   FUN_1800018E0 -- selected when bit 0xE set (alt to 13A0). Similar to 13A0 but simpler logic.
-    //                   Blocks Alt+Tab, Ctrl+Esc, Alt+F4, F10-like, key 0x1B with Alt, 0x5B-0x5D.
-    //
     // WH_MSGFILTER hook procedure (LAB_180001B80):
     //   Blocks WM_SYSCOMMAND (0x204..0x20D range, bits in 0x387) and WM_CONTEXTMENU (0xA3..0xAE range, bits in 0x70F).
     //   Blocks WM_SYSKEYDOWN (0x201) if Alt (0x11) is held.
@@ -540,52 +494,11 @@ namespace hookdll {
     static constexpr uintptr_t ANTI_DEBUG_GUARD_DISPATCH = 0x18000F298;  // PTR__guard_dispatch_icall -- CFG dispatch
     static constexpr uintptr_t ANTI_DEBUG_EXCEPTION_FILTER = 0x18001C000;  // set by __scrt_dllmain_exception_filter
 
-    //    DLL lifecycle / CRT init   
-    // FUN_180001DAC is the main DLL lifecycle dispatcher (called from entry/DllMain).
-    // It checks ANTI_DEBUG_INIT_DONE, calls FUN_180001BC0 (DLL_PROCESS_ATTACH/DETACH handler),
-    // FUN_180001BB0 (stores param_1 as HOOK_WINDOW_HANDLE), and FUN_180001D28 (cleanup).
-    //
-    // FUN_180001BB0: stores its param as HOOK_WINDOW_HANDLE (0x180019AD0).
-    // FUN_180001BC0: on DLL_PROCESS_ATTACH calls FUN_180001C10; on DETACH calls FUN_1800020BC.
-    // FUN_180001C10: CRT thread-attach handler. Acquires startup lock, calls:
-    //   - FUN_18000207C (check if already initialized)
-    //   - FUN_180002488 (guard dispatch_icall check on array at 0x180017230)
-    //   - FUN_180002488 (init slist at DAT_180019AF0)
-    //   - FUN_180001FF0 (sets flags at DAT_180019B00 and DAT_180019B08)
-    //   - FUN_180004FF8 (CFG check on guard_dispatch_icall at 0x18000F2D0/F2F0)
-    //   - FUN_180004FC0 (CFG check on guard_dispatch_icall at 0x18000F2C0/F2C8)
-    // FUN_180001D28: CRT thread-detach handler. Decrements HOOK_REFCOUNT, calls:
-    //   - FUN_180001FD4 (flush slist at DAT_180019AF0)
-    //   - FUN_1800024C4 (guard dispatch_icall check on array at 0x180017240)
-    // FUN_1800020BC: DLL_PROCESS_DETACH handler. Calls FUN_180005D58 and FUN_180002A48.
-
-    //    Anti-debug: FUN_180001F14 (called from FUN_180001F14, CRT init)   
-    // Generates a 48-bit random value seeded from:
-    //   - GetSystemTimeAsFileTime
-    //   - GetCurrentThreadId() ^ time_low
-    //   - GetCurrentProcessId() ^ (time_low ^ thread_id)
-    //   - QueryPerformanceCounter
-    // Stores at DAT_180019040 (48-bit). If result == 0x2B992DFA232 (unlikely), retries with 0x2B992DFA233.
-    // Then sets DAT_180019080 = ~DAT_180019040.
-    // This is a per-session random canary -- likely used for integrity checks or as a key seed.
-
+    
     static constexpr uintptr_t ANTI_DEBUG_RANDOM_CANARY  = 0x180019040;  // DAT_180019040 -- 48-bit random value
     static constexpr uintptr_t ANTI_DEBUG_RANDOM_CANARY2 = 0x180019080; // DAT_180019080 -- ~canary (complement)
 
-    //    Known DLL function RVA (for pattern scanning)   
-    // The DLL uses obfuscated exports + internal functions. Key RVAs for pattern scanning:
-    //   DllMain (entry):         0xED4  -- thin dispatcher, calls FUN_180001F14 on attach + FUN_180001DAC
-    //   FUN_1800013A0 (kbd):    0x13A0 -- WH_KEYBOARD_LL proc (Alt+Tab/Ctrl+Esc/F10/F12 blocker)
-    //   FUN_1800014A0 (kbd):    0x14A0 -- WH_KEYBOARD_LL proc (SendInput-based blocker)
-    //   FUN_1800017C0 (kbd):    0x17C0 -- WH_KEYBOARD_LL proc (wide key block)
-    //   FUN_1800018E0 (kbd):    0x18E0 -- WH_KEYBOARD_LL proc (simpler alt-blocker)
-    //   FUN_180001AD0 (getmsg): 0x1AD0 -- WH_GETMESSAGE proc (blocks sys messages + Alt+space)
-    //   CLDBDoSomeStuff:         0x1110 -- main hook install/remove dispatcher
-
-    //    FUNC_180004FF8 / FUNC_180004FC0 -- CFG-guarded calls   
-    // These are called from FUN_180001C10 (DLL_THREAD_ATTACH) and are CFG-protected.
-    // They likely initialize additional security subsystems. Addresses in .text beyond 0x180002FFF.
-    // Specific addresses not yet determined -- they are referenced as pointers in FUN_180001C10.
+ 
 
     //    Other notable functions   
     static constexpr uintptr_t FUN_180001F14 = 0x180001F14;  // random canary generator (GetSystemTimeAsFileTime + PID/TID + QPC)
